@@ -1,11 +1,99 @@
 from Order import Order
 from StockPrice import StockPrice
+import sqlite3
+import os.path
+from os import path
+from datetime import date
+
+
+# method that will convert a list of StockPrice objects into the form for them to be added to the sqlite db
+def stocks_to_values(stock_list):
+    records = []
+    for stock in stock_list:
+        if stock.cost_basis_exists:
+            records.append((str(date.today()), stock.symbol, stock.prices['cost_basis']))
+        else:
+            records.append((str(date.today()), stock.symbol, None))
+    return records
+
+
+# method that will create an  sqlite3 db
+def create_db():
+    con = sqlite3.connect('stock.db')
+    cur = con.cursor()
+
+    # create the table for the stocks
+    # note that I only have columns for cost_basis as the other prices will be determined
+    # at run time using yfinance
+    cur.execute('''CREATE TABLE stocks
+                   (date text, ticker text, cost_basis real)''')
+
+    stocks_to_add = {}
+    first = True
+    # prompt the user to enter any stocks that they desire to have in the db
+    while True:
+        while True:
+            if first:
+                add_stock = input("Would you like to add any stocks to the database? (yes/no):")
+                first = False
+            else:
+                add_stock = input("Would you like to add another stocks to the database? (yes/no):")
+            if add_stock == "yes" or add_stock == "no":
+                break
+            print("Answer must be \'yes\' or \'no\'")
+        if add_stock == "no":
+            break
+        temp_stock = get_stock()
+        stocks_to_add[temp_stock.symbol] = temp_stock
+
+    records = stocks_to_values(list(stocks_to_add.values()))
+
+    cur.executemany('INSERT INTO stocks VALUES(?,?,?);', records)
+
+    # commit the changes to db
+    con.commit()
+
+    # close the connection
+    con.close()
+
+    # return the dictionary that will permit O(1) lookup based on stock ticker
+    return stocks_to_add
+
+
+# method that will load the stocks that are stored in the db into a dictionary
+def load_db():
+    con = sqlite3.connect('stock.db')
+    cur = con.cursor()
+
+    # dictionary that will hold all of the stocks from the db
+    stocks_dict = {}
+    for row in cur.execute('SELECT * FROM stocks ORDER BY ticker ASC'):
+        temp_stock = load_stock(row[1], row[1])
+        stocks_dict[temp_stock.symbol] = temp_stock
+
+    # close the connection
+    con.close()
+
+    # return the dictionary that will permit O(1) lookup based on stock ticker
+    print(stocks_dict)
+    return stocks_dict
+
+
+# method that will get the stock that the user wishes to trade
+def get_stock_db():
+    symbol = input("Enter the name of the stock you wish to add to the db: ")
+    return StockPrice(symbol)
 
 
 # method that will get the stock that the user wishes to trade
 def get_stock():
     symbol = input("Enter the name of the stock whose prices you wish to be displayed: ")
     return StockPrice(symbol)
+
+
+# method that will load a stock
+def load_stock(ticker, cost_basis):
+    return StockPrice(ticker, cost_basis)
 
 
 # prompt the user to specify the prices that they wish to trade off of from the options that exist for that stock
@@ -86,8 +174,9 @@ def get_percentages(time_frame, cost):
 # helper method to get the cost for an order
 def get_cost(stock, percentage, time_frame):
     while True:
-        order_cost = input("Enter the desired amount in dollars to spend on order for " + str(stock.prices[time_frame]) +
-                           " % " + str(percentage * 100) + " : $")
+        order_cost = input(
+            "Enter the desired amount in dollars to spend on order for " + str(stock.prices[time_frame]) +
+            " % " + str(percentage * 100) + " : $")
         try:
             order_cost = float(order_cost)
             break
@@ -122,6 +211,13 @@ def get_orders(stock, time_frames):
 
 # main
 if __name__ == '__main__':
+    # # create the database if it doesn't exist else connect to existing db
+    # if path.exists("stocks.db"):
+    #     print("Loading db...")
+    #     load_db()
+    # else:
+    #     print("Creating db for your stocks...")
+    #     create_db()
     # obtain the stock that the user wishes
     stock = get_stock()
     # get the time frames for the particular stock that the user wishes to trade off of
